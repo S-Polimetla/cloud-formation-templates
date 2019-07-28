@@ -39,7 +39,7 @@ Resources:
                 Owner: !Ref RepositoryOwner
                 Repo: !Ref RepositoryName
                 Branch: !Ref RepositoryBranch
-                OAuthToken: "{{resolve:ssm:/github/personal_access_token:1}}"
+                OAuthToken: "{{resolve:ssm:/github/polimetla_access_token:1}}"
               OutputArtifacts:
               - Name: SourceOutput
         - Name: Build
@@ -169,6 +169,7 @@ Resources:
                   - s3:GetObject
                   - s3:GetObjectVersion
                   - s3:PutObject
+                  - s3:ListBucket
                 Resource:
                   - !Sub arn:aws:s3:::${ArtifactsBucket}/*
 
