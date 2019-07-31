@@ -4,7 +4,7 @@ Parameters:
 
   ProjectName:
     Type: String
-    Description: The name of the project.
+    Description: The name of the project. Example. device-service
   RepositoryOwner:
     Type: String
     Description: The owner of the GitHub repository.
@@ -39,6 +39,7 @@ Resources:
                 Owner: !Ref RepositoryOwner
                 Repo: !Ref RepositoryName
                 Branch: !Ref RepositoryBranch
+                # CloudFormation as of now does not support ssm-secure
                 OAuthToken: "{{resolve:ssm:/github/polimetla_access_token:1}}"
               OutputArtifacts:
               - Name: SourceOutput
