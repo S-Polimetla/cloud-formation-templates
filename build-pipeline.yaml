@@ -318,3 +318,11 @@ Resources:
                   - ec2:DescribeSecurityGroups
                 Resource:
                   - "*"
+              - Effect: Allow
+                Action:
+                  - events:*
+                Resource:
+                  - "*"
+              - Effect: Allow
+                Action:
+                  - lambda
