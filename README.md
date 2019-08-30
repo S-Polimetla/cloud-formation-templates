@@ -1,7 +1,7 @@
 # cloud-formation-templates
 Cloud Formation Templates for deploying Server less Applications
 
-## build-pipeline.yaml
+## build-pipeline-serverless.yaml
 The template `build-pipeline.yaml` can be used to deploy code from GitHub to AWS CodePipeline. 
 The pipeline has threee stages namely Source, Build and Deploy
 1. In Source, the code is fetched from GitHub upon a commit to master branch (can be switched to any other branch)
@@ -19,3 +19,6 @@ Uploading `build-pipeline.yaml` with some parameter entries is the only manual s
 *Make sure that the user who uploads the templates in Cloud Formation has access to read from SSM Parameter store*
 
 Later on, upon each commit to master (or any other if you configure it that way) branch of the repository which uses this pipeline, the deployment process is automated in a CI/CD way.
+
+## build-pipeline-docker.yaml
+CI/CD pipeline for dockerized applications
