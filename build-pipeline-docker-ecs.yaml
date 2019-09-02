@@ -1,4 +1,5 @@
 AWSTemplateFormatVersion: 2010-09-09
+Description: Template to create CodePipeline to build and deploy a Spring boot application as a docker container on ECS
 
 Parameters:
 
@@ -8,6 +9,7 @@ Parameters:
   RepositoryOwner:
     Type: String
     Description: The owner of the GitHub repository.
+    Default: S-Polimetla
   RepositoryName:
     Type: String
     Description: The name of the GitHub repository.
@@ -55,6 +57,36 @@ Resources:
                 - Name: SourceOutput
               OutputArtifacts:
                 - Name: BuildOutput
+        - Name: Deploy
+          Actions:
+            - Name: Prepare
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: 1
+              Configuration:
+                ActionMode: CHANGE_SET_REPLACE
+                Capabilities: CAPABILITY_IAM
+                TemplatePath: BuildOutput::template-output.yaml
+                TemplateConfiguration: BuildOutput::config.json
+                ChangeSetName: !Sub ${ProjectName}-changeset
+                StackName: !Sub ${ProjectName}
+                RoleArn: !GetAtt CloudFormationServiceRole.Arn
+              InputArtifacts:
+                - Name: BuildOutput
+              RunOrder: 1
+            - Name: Execute
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: 1
+              Configuration:
+                ActionMode: CHANGE_SET_EXECUTE
+                ChangeSetName: !Sub ${ProjectName}-changeset
+                StackName: !Sub ${ProjectName}
+              RunOrder: 2
       RoleArn: !GetAtt  CodePipelineServiceRole.Arn
       ArtifactStore:
         Type: S3
@@ -69,9 +101,12 @@ Resources:
         BuildSpec: buildspec.yaml
       Artifacts:
         Type: CODEPIPELINE
-      Cache:
-        Location: !Sub io.polimetla.codepipeline.${ProjectName}/cache
-        Type: S3
+      Cache: # Caching is recommended for builds which download large images. In this case, openjdk
+        Type: LOCAL
+        Modes:
+          - LOCAL_CUSTOM_CACHE
+          - LOCAL_DOCKER_LAYER_CACHE
+          - LOCAL_SOURCE_CACHE        
       ServiceRole: !GetAtt CodeBuildServiceRole.Arn
       Environment:
         Type: LINUX_CONTAINER
@@ -185,13 +220,7 @@ Resources:
                 Action:
                   - ecr:*
                 Resource:
-                  - "*"
-              - Effect: Allow
-                Action:
-                  - ssm:GetParameters
-                Resource:
-                  # https://docs.aws.amazon.com/systems-manager/latest/userguide/sysman-paramstore-access.html
-                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/maven/*
+                  - "*"              
 
   #
   # Service role according to https://docs.aws.amazon.com/lambda/latest/dg/build-pipeline.html
@@ -212,42 +241,87 @@ Resources:
         - PolicyName: CloudFormationTrustPolicy
           PolicyDocument:
             Version: 2012-10-17
-            Statement:
+            Statement:              
+              - Effect: Allow
+                Action:            
+                  - ec2:CreateVpc   
+                  - ec2:DescribeVpcs
+                  - ec2:DeleteVpc  
+                  - ec2:ModifyVpcAttribute              
+                  - ec2:CreateInternetGateway
+                  - ec2:DescribeInternetGateways
+                  - ec2:DeleteInternetGateway
+                  - ec2:AttachInternetGateway
+                  - ec2:DetachInternetGateway
+                  - ec2:DescribeAvailabilityZones
+                  - ec2:DescribeAccountAttributes
+                  - ec2:CreateSubnet
+                  - ec2:DescribeSubnets
+                  - ec2:DeleteSubnet
+                  - ec2:ModifySubnetAttribute
+                  - ec2:CreateSecurityGroup 
+                  - ec2:DescribeSecurityGroups 
+                  - ec2:DeleteSecurityGroup
+                  - ec2:CreateRouteTable 
+                  - ec2:DescribeRouteTables 
+                  - ec2:DeleteRouteTable 
+                  - ec2:AuthorizeSecurityGroupIngress
+                  - ec2:AssociateRouteTable 
+                  - ec2:DisassociateRouteTable
+                  - ec2:CreateRoute
+                  - ec2:DeleteRoute
+                Resource:
+                  - "*"  
               - Effect: Allow
                 Action:
-                  - s3:GetObject
-                  - s3:GetObjectVersion
-                  - s3:GetBucketVersioning
+                  - elasticloadbalancing:CreateLoadBalancer
+                  - elasticloadbalancing:DescribeLoadBalancers
+                  - elasticloadbalancing:DeleteLoadBalancer
+                  - elasticloadbalancing:CreateTargetGroup                  
+                  - elasticloadbalancing:DeleteTargetGroup
+                  - elasticloadbalancing:DescribeTargetGroups 
+                  - elasticloadbalancing:CreateListener
+                  - elasticloadbalancing:DescribeListeners
+                  - elasticloadbalancing:DeleteListener 
+                  - elasticloadbalancing:CreateRule
+                  - elasticloadbalancing:DescribeRules
+                  - elasticloadbalancing:DeleteRule
+                Resource:                 
+                 - "*"
+              - Effect: Allow
+                Action:
+                  - logs:*                  
                 Resource:
                   - "*"
               - Effect: Allow
                 Action:
-                  - s3:PutObject
+                  - ecs:CreateCluster
+                  - ecs:DescribeClusters
+                  - ecs:DeleteCluster
+                  - ecs:RegisterTaskDefinition
+                  - ecs:DeregisterTaskDefinition
+                  - ecs:CreateService
+                  - ecs:DescribeServices
+                  - ecs:DeleteService
+                  - ecs:UpdateService
                 Resource:
-                  - !Sub arn:aws:s3:::${ArtifactsBucket}/*
+                  - "*"
               - Effect: Allow
                 Action:
                   - iam:GetRole
                   - iam:CreateRole
                   - iam:DeleteRole
+                  - iam:GetRolePolicy
                   - iam:PutRolePolicy
-                Resource:
-                  - !Sub arn:aws:iam::${AWS::AccountId}:role/*
-              - Effect: Allow
-                Action:
-                  - iam:AttachRolePolicy
                   - iam:DeleteRolePolicy
+                  - iam:AttachRolePolicy
                   - iam:DetachRolePolicy
-                Resource:
-                  - !Sub arn:aws:iam::${AWS::AccountId}:role/*
-              - Effect: Allow
-                Action:
                   - iam:PassRole
                 Resource:
-                  - "*"
-              - Effect: Allow
-                Action:
-                  - cloudformation:CreateChangeSet
-                Resource:
-                  - !Sub arn:aws:cloudformation:${AWS::Region}:aws:transform/Serverless-2016-10-31
-                  - !Sub arn:aws:cloudformation:${AWS::Region}:aws:transform/Include
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/*      
+              #- Effect: Allow
+                #Action:
+                  #- cloudformation:CreateChangeSet
+                #Resource:
+                  #- !Sub arn:aws:cloudformation:${AWS::Region}:aws:transform/Serverless-2016-10-31
+                  #- !Sub arn:aws:cloudformation:${AWS::Region}:aws:transform/Include
