@@ -1,0 +1,171 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for running PGAdmin4 as a container
+
+Parameters:
+
+  NetworkStackName:
+    Type: String
+    Description: The name of the stack which created Network and DB
+
+Resources:
+
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: PGAdmin
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: pgadmin-ELB
+      Subnets:
+        - Fn::ImportValue:
+            !Sub ${NetworkStackName}-subnet1
+        - Fn::ImportValue:
+            !Sub ${NetworkStackName}-subnet2
+      SecurityGroups:
+        - Fn::ImportValue:
+            !Sub ${NetworkStackName}-ELB-SG
+
+  LoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref DefaultTargetGroup
+
+  DefaultTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: pgadmin-default-tg
+      VpcId:
+        Fn::ImportValue:
+          !Sub ${NetworkStackName}-VPC
+      Protocol: HTTP
+      Port: 80
+
+  CloudWatchLogsGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: pgadmin
+      RetentionInDays: 1 # You may not want to do this for production
+
+  Task:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: pgadmin
+      Cpu: 2048
+      Memory: 4096
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !Ref ECSTaskExecutionRole
+      ContainerDefinitions:
+        - Name: pgadmin
+          Image: dpage/pgadmin4 # From dockerhub
+          Cpu: 2048
+          Memory: 4096
+          PortMappings:
+            - ContainerPort: 80
+              Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: pgadmin
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: pgadmin
+          Environment:          
+            - Name: PGADMIN_DEFAULT_EMAIL
+              Value: s-polimetla@s-polimetla.de
+            - Name: PGADMIN_DEFAULT_PASSWORD
+              Value: test1234
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: ListenerRule
+    Properties:
+      ServiceName: pgadmin-service
+      TaskDefinition: !Ref Task
+      Cluster: !Ref ECSCluster
+      LaunchType: FARGATE
+      DesiredCount: 1
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - Fn::ImportValue:
+                !Sub ${NetworkStackName}-subnet1
+            - Fn::ImportValue:
+                !Sub ${NetworkStackName}-subnet2
+          SecurityGroups:
+            - Fn::ImportValue:
+                !Sub ${NetworkStackName}-container-SG
+      LoadBalancers:
+        - ContainerName: pgadmin
+          ContainerPort: 80
+          TargetGroupArn: !Ref TargetGroup
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: pgadmin-tg
+      VpcId:
+        Fn::ImportValue:
+          !Sub ${NetworkStackName}-VPC
+      Port: 80
+      Protocol: HTTP
+      Matcher:
+        HttpCode: 200-299
+      TargetType: ip
+
+  ListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref LoadBalancerListener
+      Priority: 2
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - /*
+      Actions:
+        - TargetGroupArn: !Ref TargetGroup
+          Type: forward
+
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: AmazonECSTaskExecutionRolePolicy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  # ECS tasks to upload logs to CloudWatch
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+Outputs:
+
+  ApiEndpoint:
+    Description: PGAdmin API Endpoint
+    Value: !Sub
+      - 'http://${ELB_DNS}'
+      - ELB_DNS: !GetAtt LoadBalancer.DNSName     
+    Export:
+      Name: PGAdminEndpoint
