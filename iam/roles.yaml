@@ -1,0 +1,213 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Creating IAM roles
+
+Parameters:
+
+  UserAccountId:
+    Type: String
+    Description: The account ID of the AWS Account containing IAM users
+    Default: <AccountId>
+
+Resources: 
+
+  AllUsersGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: AllUsers
+
+  DeveloperGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: Developers  
+
+  AdminGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: Admins
+
+  RoleDeveloper:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS:
+                - !Sub 'arn:aws:iam::${UserAccountId}:root'
+            Condition:
+              Bool:
+                aws:MultiFactorAuthPresent: true
+            Action:
+              - 'sts:AssumeRole'              
+      Path: /
+      Policies:
+        - PolicyName: RestrictAccess
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Deny
+                Action:
+                  - codepipeline:PutApprovalResult # Developers cannot provide manual approvals for pipelines. Only Admins can
+                Resource:
+                  - "*"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/PowerUserAccess
+      RoleName: DeveloperAccess
+      
+  RoleAdmin:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS:
+                - !Sub 'arn:aws:iam::${UserAccountId}:root'
+            Condition:
+              Bool:
+                aws:MultiFactorAuthPresent: true
+            Action:
+              - 'sts:AssumeRole'              
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+        - arn:aws:iam::aws:policy/job-function/Billing
+      RoleName: AdminAccess
+
+  DeveloperPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: DeveloperPolicy
+      PolicyDocument: |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Resource": [
+                "arn:aws:iam::<AccountId>:role/DeveloperAccess"             
+              ]
+            }
+          ]
+        }
+      Groups:
+        - !Ref DeveloperGroup
+
+  AdminPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: AdminPolicy
+      PolicyDocument: |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Resource": [                
+                "arn:aws:iam::<AccountId>:role/AdminAccess",
+                "arn:aws:iam::<AccountId>:role/DeveloperAccess"
+              ]
+            }
+          ]
+        }
+      Groups:
+        - !Ref AdminGroup
+
+  SecurityCredentialsSelfServicePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: SecurityCredentialsSelfServicePolicy
+      PolicyDocument: |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AllowAllUsersToListAccounts",
+              "Effect": "Allow",
+              "Action": [
+                "iam:ListAccountAliases",
+                "iam:ListUsers",
+                "iam:ListVirtualMFADevices",
+                "iam:GetAccountPasswordPolicy",
+                "iam:GetAccountSummary"
+              ],
+              "Resource": "*"
+            },
+            {
+              "Sid": "AllowIndividualUserToSeeAndManageOnlyTheirOwnAccountInformation",
+              "Effect": "Allow",
+              "Action": [
+                "iam:ChangePassword",
+                "iam:CreateAccessKey",
+                "iam:CreateLoginProfile",
+                "iam:DeleteAccessKey",
+                "iam:DeleteLoginProfile",
+                "iam:GetLoginProfile",
+                "iam:ListAccessKeys",
+                "iam:UpdateAccessKey",
+                "iam:UpdateLoginProfile",
+                "iam:ListSigningCertificates",
+                "iam:DeleteSigningCertificate",
+                "iam:UpdateSigningCertificate",
+                "iam:UploadSigningCertificate",
+                "iam:ListSSHPublicKeys",
+                "iam:GetSSHPublicKey",
+                "iam:DeleteSSHPublicKey",
+                "iam:UpdateSSHPublicKey",
+                "iam:UploadSSHPublicKey"
+              ],
+              "Resource": "arn:aws:iam::*:user/${aws:username}"
+            },
+            {
+              "Sid": "AllowIndividualUserToListOnlyTheirOwnMFA",
+              "Effect": "Allow",
+              "Action": [
+                "iam:ListMFADevices"
+              ],
+              "Resource": [
+                "arn:aws:iam::*:mfa/*",
+                "arn:aws:iam::*:user/${aws:username}"
+              ]
+            },
+            {
+              "Sid": "AllowIndividualUserToManageTheirOwnMFA",
+              "Effect": "Allow",
+              "Action": [
+                "iam:CreateVirtualMFADevice",
+                "iam:DeleteVirtualMFADevice",
+                "iam:EnableMFADevice",
+                "iam:ResyncMFADevice"
+              ],
+              "Resource": [
+                "arn:aws:iam::*:mfa/${aws:username}",
+                "arn:aws:iam::*:user/${aws:username}"
+              ]
+            },
+            {
+              "Sid": "AllowIndividualUserToDeactivateOnlyTheirOwnMFAOnlyWhenUsingMFA",
+              "Effect": "Allow",
+              "Action": [
+                "iam:DeactivateMFADevice"
+              ],
+              "Resource": [
+                "arn:aws:iam::*:mfa/${aws:username}",
+                "arn:aws:iam::*:user/${aws:username}"
+              ],
+              "Condition": {
+                "Bool": {
+                  "aws:MultiFactorAuthPresent": "true"
+                }
+              }
+            }
+          ]
+        }
+      Groups:
+        - !Ref AllUsersGroup
